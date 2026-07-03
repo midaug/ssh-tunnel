@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "huangxianjun",
-    "email": "huangxianjun@qianli-ai.com"
+    "name": "midaug",
+    "email": "days0814@gmail.com"
   }
 }
