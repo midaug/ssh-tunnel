@@ -1,0 +1,139 @@
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --border: #e3e5ea;
+  --text: #1f2329;
+  --muted: #8a9099;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,.12), 0 4px 12px rgba(0,0,0,.08);
+  --transition: .18s cubic-bezier(.4,0,.2,1);
+}
+
+* {box-sizing: border-box;}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {color: var(--primary); text-decoration: none; transition: color var(--transition);}
+a:hover {text-decoration: underline;}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  transition: all var(--transition);
+}
+button:hover {border-color: var(--primary); color: var(--primary); transform: translateY(-1px);}
+button:active {transform: translateY(0);}
+button.primary {background: var(--primary); color: #fff; border-color: var(--primary);}
+button.primary:hover {background: var(--primary-hover); color: #fff; border-color: var(--primary-hover);}
+button.danger {color: var(--danger); border-color: var(--border);}
+button.danger:hover {border-color: var(--danger); color: var(--danger);}
+button.ghost {border-color: transparent; padding: 4px 8px;}
+button.ghost:hover {background: var(--bg);}
+button:disabled {opacity: .5; cursor: not-allowed; transform: none !important;}
+
+input, select, textarea {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  width: 100%;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+
+.row {display: flex; gap: 10px; align-items: center;}
+.col {display: flex; flex-direction: column; gap: 10px;}
+.field {display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px;}
+.field label {font-size: 12px; color: var(--muted); font-weight: 500;}
+.field .hint {font-size: 11px; color: var(--muted);}
+
+.layout {display: flex; height: 100vh;}
+.sidebar {width: 200px; background: var(--panel); border-right: 1px solid var(--border); padding: 16px 0; display: flex; flex-direction: column;}
+.sidebar .logo {padding: 0 20px 16px; font-weight: 600; font-size: 16px;}
+.sidebar nav a {display: block; padding: 10px 20px; color: var(--text); transition: all var(--transition);}
+.sidebar nav a:hover {background: var(--bg); text-decoration: none;}
+.sidebar nav a.router-link-active {color: var(--primary); background: rgba(37,99,235,.06);}
+.sidebar .spacer {flex: 1;}
+.sidebar nav a.danger-link {color: var(--danger);}
+.sidebar nav a.danger-link:hover {background: rgba(220,38,38,.06);}
+.main {flex: 1; overflow-y: auto; padding: 24px;}
+
+.card {background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; box-shadow: var(--shadow); transition: box-shadow var(--transition);}
+.card:hover {box-shadow: var(--shadow-lg);}
+.page-title {display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;}
+.page-title h2 {margin: 0; font-size: 18px;}
+
+.badge {display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; transition: all var(--transition);}
+.badge.running {background: rgba(22,163,74,.12); color: var(--success);}
+.badge.connecting {background: rgba(217,119,6,.12); color: var(--warning);}
+.badge.stopped {background: rgba(138,144,153,.15); color: var(--muted);}
+.badge.error {background: rgba(220,38,38,.12); color: var(--danger);}
+
+.actions {display: flex; gap: 8px;}
+
+.empty {text-align: center; padding: 60px 20px; color: var(--muted);}
+.empty .icon {font-size: 40px; margin-bottom: 12px;}
+.empty .empty-icon {margin-bottom: 16px; opacity: .5;}
+
+.tunnel-card {display: flex; align-items: center; justify-content: space-between; gap: 16px; transition: all var(--transition);}
+.tunnel-card:hover {border-color: var(--primary);}
+.tunnel-card .info {flex: 1; min-width: 0;}
+.tunnel-card .name {font-weight: 600; font-size: 15px; margin-bottom: 4px;}
+.tunnel-card .meta {font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap;}
+.tunnel-card .forwards {font-size: 12px; color: var(--muted); margin-top: 6px; font-family: ui-monospace, SFMono-Regular, monospace;}
+.tunnel-card .err {font-size: 12px; color: var(--danger); margin-top: 4px;}
+.tunnel-card .toggle {width: 44px; height: 24px; border-radius: 12px; background: #d1d5db; position: relative; cursor: pointer; transition: background var(--transition); border: none; padding: 0; flex-shrink: 0;}
+.tunnel-card .toggle.on {background: var(--success);}
+.tunnel-card .toggle::after {content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left var(--transition); box-shadow: 0 1px 3px rgba(0,0,0,.2);}
+.tunnel-card .toggle.on::after {left: 22px;}
+.tunnel-card .toggle:hover {opacity: .85;}
+.tunnel-card .toggle.busy {opacity: .6; cursor: progress;}
+.tunnel-card .toggle:hover {opacity: .85;}
+
+.forward-row {display: grid; grid-template-columns: 90px 1fr 1fr 32px; gap: 8px; align-items: center; margin-bottom: 8px;}
+.forward-row .type-select {width: 100%;}
+.forward-row .del {padding: 4px 8px;}
+
+.toolbar {display: flex; gap: 8px; margin-bottom: 16px;}
+
+textarea.cmd {font-family: ui-monospace, SFMono-Regular, monospace; min-height: 120px; resize: vertical;}
+
+/* 弹窗 */
+.modal-mask {position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 100; animation: fade-in .15s ease;}
+.modal {width: 520px; max-width: 90vw; background: var(--panel); margin: 0; animation: pop-in .18s cubic-bezier(.4,0,.2,1);}
+@keyframes fade-in {from {opacity: 0;} to {opacity: 1;}}
+@keyframes pop-in {from {opacity: 0; transform: scale(.96) translateY(8px);} to {opacity: 1; transform: scale(1) translateY(0);}}
+
+/* 路由切换动画 */
+.main > * {animation: page-in .2s ease;}
+@keyframes page-in {from {opacity: 0; transform: translateY(6px);} to {opacity: 1; transform: translateY(0);}}
+
+/* spinner */
+.spinner {display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: -2px;}
+@keyframes spin {to {transform: rotate(360deg);}}

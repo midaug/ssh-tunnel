@@ -1,0 +1,177 @@
+package main
+
+import (
+	"context"
+	"embed"
+	"log"
+	"os"
+	"runtime"
+	"time"
+
+	"ssh-tunnel/internal/config"
+	"ssh-tunnel/internal/dock"
+	"ssh-tunnel/internal/tray"
+	"ssh-tunnel/internal/tunnel"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+//go:embed all:frontend/dist
+var assets embed.FS
+
+// 全局引用，供托盘回调使用
+var (
+	appInstance  *App
+	wailsCtx     context.Context
+	trayInstance *tray.Tray
+)
+
+func main() {
+	// 初始化配置存储
+	store, err := config.NewStore()
+	if err != nil {
+		log.Fatalf("初始化配置失败: %v", err)
+	}
+
+	// 隧道管理器，状态变更同步到 store + 托盘 + 前端
+	manager := tunnel.NewManager(store, func(id string, status config.Status, lastErr string) {
+		store.UpdateRuntimeStatus(id, status, lastErr, status == config.StatusStopped || status == config.StatusError)
+		// 推送事件到前端
+		if wailsCtx != nil {
+			wailsRuntime.EventsEmit(wailsCtx, "tunnel:status", map[string]string{
+				"id":        id,
+				"status":    string(status),
+				"lastError": lastErr,
+			})
+		}
+		// 更新托盘状态
+		if trayInstance != nil {
+			trayInstance.SetTunnelState(id, string(status), lastErr)
+		}
+	})
+
+	appInstance = NewApp(store, manager)
+	appInstance.setRefreshTray(func() {
+		trayInstance.SetItems(toTrayItems(store.ListTunnels(), manager))
+	})
+	// 完全退出：停隧道 + 退托盘 + 退 Wails
+	appInstance.setQuitApp(func() {
+		manager.StopAll()
+		if trayInstance != nil {
+			trayInstance.Quit()
+		}
+		if wailsCtx != nil {
+			wailsRuntime.Quit(wailsCtx)
+		}
+	})
+
+	// 托盘注册（非阻塞，使用外部 runloop 模式与 Wails 共享 NSApp）
+	trayInstance = tray.New(tray.Callbacks{
+		OnToggleTunnel: func(id string) {
+			if manager.IsRunning(id) {
+				_ = manager.Stop(id)
+			} else {
+				_ = manager.Start(id)
+			}
+		},
+		OnStartAll: func() {
+			manager.StartAll()
+		},
+		OnStopAll: func() {
+			manager.StopAll()
+		},
+		OnShowWindow: func() {
+			if wailsCtx != nil {
+				wailsRuntime.WindowShow(wailsCtx)
+			}
+		},
+		OnQuit: func() {
+			appInstance.quitApp()
+		},
+	})
+	if !disableTray() {
+		trayInstance.Init()
+		// 在主线程创建 NSStatusItem（必须在 wails.Run 阻塞主线程之前）
+		trayInstance.Start()
+	}
+
+	// 初始托盘菜单（Start 后会应用）
+	trayInstance.SetItems(toTrayItems(store.ListTunnels(), manager))
+
+	// 主线程运行 Wails（macOS 要求 NSWindow 在主线程创建）
+	err = wails.Run(&options.App{
+		Title:  "SSH Tunnel",
+		Width:  960,
+		Height: 640,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		BackgroundColour: &options.RGBA{R: 245, G: 245, B: 245, A: 1},
+		OnStartup: func(ctx context.Context) {
+			wailsCtx = ctx
+			appInstance.startup(ctx)
+		},
+		OnDomReady: func(ctx context.Context) {
+			// 延迟执行：等窗口完全显示后再隐藏，否则 Hide 调用无效
+			settings := store.GetSettings()
+			if settings.HideFromDock || settings.StartMinimized {
+				go func() {
+					time.Sleep(300 * time.Millisecond)
+					if settings.HideFromDock {
+						dock.Hide()
+					}
+					if settings.StartMinimized {
+						wailsRuntime.Hide(ctx)
+					}
+				}()
+			}
+		},
+		OnBeforeClose: func(ctx context.Context) (prevent bool) {
+			// 关闭窗口时隐藏到托盘而非退出
+			settings := store.GetSettings()
+			if settings.MinimizeToTray && trayInstance != nil {
+				wailsRuntime.Hide(ctx)
+				return true
+			}
+			manager.StopAll()
+			return false
+		},
+		Bind: []interface{}{
+			appInstance,
+		},
+		Mac: &mac.Options{
+			About: &mac.AboutInfo{
+				Title:   "SSH Tunnel",
+				Message: "SSH 端口转发管理工具",
+			},
+		},
+	})
+	if err != nil {
+		log.Fatalf("wails: %v", err)
+	}
+	manager.StopAll()
+}
+
+// disableTray 通过环境变量 SSH_TUNNEL_NO_TRAY=1 禁用托盘（用于开发/无桌面环境）
+func disableTray() bool {
+	return os.Getenv("SSH_TUNNEL_NO_TRAY") == "1"
+}
+
+func toTrayItems(tunnels []config.Tunnel, m *tunnel.Manager) []tray.TunnelItem {
+	_ = runtime.GOOS // keep import
+	items := make([]tray.TunnelItem, 0, len(tunnels))
+	for _, t := range tunnels {
+		s, e := m.Status(t.ID)
+		items = append(items, tray.TunnelItem{
+			ID:     t.ID,
+			Name:   t.Name,
+			Status: string(s),
+			Error:  e,
+		})
+	}
+	return items
+}

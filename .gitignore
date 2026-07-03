@@ -1,0 +1,24 @@
+# 构建产物
+build/bin
+frontend/dist
+
+# 依赖
+node_modules/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+*.test
+*.out
+
+# Wails 开发缓存
+frontend/wailsjs/.timestamp
+frontend/package.json.md5
