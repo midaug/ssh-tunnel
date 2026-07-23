@@ -1,7 +1,5 @@
 package config
 
-import "time"
-
 // 隧道状态
 type Status string
 
@@ -29,6 +27,28 @@ const (
 	AuthKey      AuthType = "key"
 )
 
+// 代理类型
+type ProxyType string
+
+const (
+	ProxyNone   ProxyType = ""       // 不使用代理
+	ProxyHTTP   ProxyType = "http"   // HTTP CONNECT
+	ProxyHTTPS  ProxyType = "https"  // HTTPS CONNECT（到代理的连接走 TLS）
+	ProxySOCKS5 ProxyType = "socks5" // SOCKS5
+)
+
+// Proxy 代理配置。到 SSH 服务器的 TCP 连接先经过该代理建立。
+type Proxy struct {
+	Type     ProxyType `json:"type,omitempty"` // 空 = 不走代理
+	Host     string    `json:"host,omitempty"`
+	Port     int       `json:"port,omitempty"`
+	User     string    `json:"user,omitempty"`     // 可选，代理认证用户名
+	Password string    `json:"password,omitempty"` // 可选，代理认证密码
+}
+
+// Enabled 判断是否启用代理
+func (p Proxy) Enabled() bool { return p.Type != ProxyNone && p.Host != "" }
+
 // Forward 单条端口转发规则
 // 语义统一：Listen = 监听地址，Target = 转发目标地址
 //   Local 转发 (-L):  在本地 Listen，转发到远端 Target
@@ -51,6 +71,7 @@ type Tunnel struct {
 	Password         string      `json:"password,omitempty"`
 	KeyPath          string      `json:"keyPath,omitempty"`
 	KeyPassphrase    string      `json:"keyPassphrase,omitempty"`
+	Proxy            Proxy       `json:"proxy,omitempty"` // 代理配置，零值表示不走代理
 	Forwards         []Forward   `json:"forwards"`
 	AutoReconnect    bool        `json:"autoReconnect"`
 	ReconnectMinMS   int         `json:"reconnectMinMs"`   // 初始退避毫秒
@@ -59,7 +80,7 @@ type Tunnel struct {
 	// 运行时状态（不持久化到导出文件，但保存到本地 config 便于重启后查看）
 	Status    Status    `json:"status,omitempty"`
 	LastError string    `json:"lastError,omitempty"`
-	StartedAt time.Time `json:"startedAt,omitempty"`
+	StartedAt string    `json:"startedAt,omitempty"`
 }
 
 // Settings 全局设置

@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"time"
 )
 
 // ExportConfig 导出整个配置为 JSON 字符串（不含运行时状态，便于分享）
@@ -17,7 +16,7 @@ func (s *Store) ExportConfig() (string, error) {
 	for _, t := range s.cfg.Tunnels {
 		t.Status = ""
 		t.LastError = ""
-		t.StartedAt = time.Time{}
+		t.StartedAt = ""
 		out.Tunnels = append(out.Tunnels, t)
 	}
 	data, err := json.MarshalIndent(out, "", "  ")

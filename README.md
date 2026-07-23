@@ -20,7 +20,8 @@
 - **三种端口转发模式**
   - `-L` 本地转发（Local Forward）
   - `-R` 远程转发（Remote Forward）
-  - `-D` 动态 SOCKS5 代理（Dynamic Forward）
+  - `-D` 动态代理（Dynamic Forward）—— 同一监听端口同时兼容 SOCKS5 与 HTTP 代理，按首字节自动识别协议；HTTP 模式支持 `CONNECT` 隧道（HTTPS / 任意 TCP）与普通请求转发，并复用 keep-alive 连接
+- **代理中转** — 到 SSH 服务器的连接可经由 HTTP / HTTPS / SOCKS5 代理建立，适用于处于内网或需跳板访问 SSH 的场景；支持代理认证，连接测试同样走代理
 - **自动重连** — 断线后自动重试，可配置退避策略（初始 / 最大退避间隔）
 - **连接测试** — 保存前先测试 SSH 连通性，不实际启动转发
 - **一键全部启用 / 全部关闭**
@@ -143,7 +144,7 @@ wails build -platform darwin/universal -clean
 | 层 | 技术 |
 |----|------|
 | 框架 | [Wails v2](https://wails.io) — Go + WebView 桌面框架 |
-| 后端 | Go，[golang.org/x/crypto/ssh](https://pkg.go.dev/golang.org/x/crypto/ssh) |
+| 后端 | Go，[golang.org/x/crypto/ssh](https://pkg.go.dev/golang.org/x/crypto/ssh)，[golang.org/x/net/proxy](https://pkg.go.dev/golang.org/x/net/proxy) |
 | 前端 | Vue 3 + TypeScript + Pinia + Vue Router |
 | 系统托盘 | [fyne.io/systray](https://github.com/fyne-io/systray) |
 | macOS Dock | cgo 调用 `NSApp.setActivationPolicy` |
@@ -165,9 +166,10 @@ ssh-tunnel/
 │   ├── tunnel/                 # SSH 隧道运行时管理
 │   │   ├── manager.go          # 多隧道管理器
 │   │   ├── tunnel.go           # 单隧道生命周期、自动重连
+│   │   ├── proxy.go            # 经 HTTP/HTTPS/SOCKS5 代理拨号 SSH 服务器
 │   │   ├── forward_local.go    # -L 本地转发
 │   │   ├── forward_remote.go   # -R 远程转发
-│   │   └── forward_dynamic.go  # -D 动态 SOCKS5
+│   │   └── forward_dynamic.go  # -D 动态转发（SOCKS5 + HTTP 代理）
 │   ├── tray/                   # 系统托盘（跨平台图标）
 │   ├── dock/                   # macOS Dock 显示控制
 │   └── autostart/              # 开机自启（macOS/Linux/Windows）

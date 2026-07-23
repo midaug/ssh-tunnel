@@ -257,7 +257,7 @@ func (t *Tunnel) connect() (*ssh.Client, error) {
 	}()
 	defer close(stopWatcherDone)
 
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	conn, err := dialViaProxy(ctx, t.cfg.Proxy, addr)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, errors.New("已取消")

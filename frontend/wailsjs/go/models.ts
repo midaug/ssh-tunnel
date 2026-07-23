@@ -16,6 +16,26 @@ export namespace config {
 	        this.target = source["target"];
 	    }
 	}
+	export class Proxy {
+	    type?: string;
+	    host?: string;
+	    port?: number;
+	    user?: string;
+	    password?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Proxy(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.user = source["user"];
+	        this.password = source["password"];
+	    }
+	}
 	export class Settings {
 	    autostart: boolean;
 	    theme: string;
@@ -46,6 +66,7 @@ export namespace config {
 	    password?: string;
 	    keyPath?: string;
 	    keyPassphrase?: string;
+	    proxy?: Proxy;
 	    forwards: Forward[];
 	    autoReconnect: boolean;
 	    reconnectMinMs: number;
@@ -53,8 +74,7 @@ export namespace config {
 	    serverAliveInterval: number;
 	    status?: string;
 	    lastError?: string;
-	    // Go type: time
-	    startedAt?: any;
+	    startedAt?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Tunnel(source);
@@ -71,6 +91,7 @@ export namespace config {
 	        this.password = source["password"];
 	        this.keyPath = source["keyPath"];
 	        this.keyPassphrase = source["keyPassphrase"];
+	        this.proxy = this.convertValues(source["proxy"], Proxy);
 	        this.forwards = this.convertValues(source["forwards"], Forward);
 	        this.autoReconnect = source["autoReconnect"];
 	        this.reconnectMinMs = source["reconnectMinMs"];
@@ -78,7 +99,7 @@ export namespace config {
 	        this.serverAliveInterval = source["serverAliveInterval"];
 	        this.status = source["status"];
 	        this.lastError = source["lastError"];
-	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.startedAt = source["startedAt"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

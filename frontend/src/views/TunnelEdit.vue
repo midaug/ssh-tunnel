@@ -16,6 +16,7 @@ const t = ref<Tunnel>(new config.Tunnel({
   user: '',
   authType: 'key',
   keyPath: '',
+  proxy: {type: '', host: '', port: 1080, user: '', password: ''},
   forwards: [],
   autoReconnect: true,
   reconnectMinMs: 1000,
@@ -31,6 +32,10 @@ onMounted(async () => {
   if (id) {
     const found = await App.TunnelList().then(list => list.find(x => x.id === id))
     if (found) t.value = found
+  }
+  // 兼容旧配置：proxy 可能为 undefined，补默认对象避免绑定报错
+  if (!t.value.proxy) {
+    t.value.proxy = new config.Proxy({type: '', host: '', port: 1080, user: '', password: ''})
   }
 })
 
@@ -131,6 +136,41 @@ const forwardsValid = computed(() => t.value.forwards && t.value.forwards.length
         <label>密码</label>
         <input type="password" v-model="t.password">
       </div>
+    </template>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; margin-bottom:12px;">
+      <strong>代理（绕过网络限制）</strong>
+      <select v-model="t.proxy!.type" style="width:140px;">
+        <option value="">不使用代理</option>
+        <option value="http">HTTP</option>
+        <option value="https">HTTPS</option>
+        <option value="socks5">SOCKS5</option>
+      </select>
+    </div>
+    <template v-if="t.proxy!.type">
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px;">
+        <div class="field">
+          <label>代理主机</label>
+          <input v-model="t.proxy!.host" placeholder="如 127.0.0.1 或 proxy.example.com">
+        </div>
+        <div class="field">
+          <label>代理端口</label>
+          <input type="number" v-model.number="t.proxy!.port">
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="field">
+          <label>用户名（可选）</label>
+          <input v-model="t.proxy!.user" placeholder="代理认证用户名">
+        </div>
+        <div class="field">
+          <label>密码（可选）</label>
+          <input type="password" v-model="t.proxy!.password" placeholder="代理认证密码">
+        </div>
+      </div>
+      <div class="hint">到 SSH 服务器的连接将经该代理建立，绕过对 SSH 端口的网络限制。</div>
     </template>
   </div>
 

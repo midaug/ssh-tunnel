@@ -77,7 +77,7 @@ func (s *Store) load() error {
 	for i := range c.Tunnels {
 		c.Tunnels[i].Status = StatusStopped
 		c.Tunnels[i].LastError = ""
-		c.Tunnels[i].StartedAt = time.Time{}
+		c.Tunnels[i].StartedAt = ""
 	}
 	s.cfg = &c
 	return s.persist()
@@ -202,9 +202,9 @@ func (s *Store) UpdateRuntimeStatus(id string, status Status, lastErr string, st
 			s.cfg.Tunnels[i].Status = status
 			s.cfg.Tunnels[i].LastError = lastErr
 			if startedAtZero {
-				s.cfg.Tunnels[i].StartedAt = time.Time{}
+				s.cfg.Tunnels[i].StartedAt = ""
 			} else if status == StatusRunning || status == StatusConnecting {
-				s.cfg.Tunnels[i].StartedAt = time.Now()
+				s.cfg.Tunnels[i].StartedAt = time.Now().Format(time.RFC3339)
 			}
 			break
 		}
