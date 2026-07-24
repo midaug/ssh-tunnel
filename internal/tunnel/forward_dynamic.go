@@ -146,6 +146,7 @@ func (t *Tunnel) handleHTTPProxy(client *ssh.Client, conn net.Conn, br *bufio.Re
 			if _, _, e := net.SplitHostPort(target); e != nil {
 				target = net.JoinHostPort(target, "443")
 			}
+			_ = req.Body.Close()
 			remote, err := client.Dial("tcp", target)
 			if err != nil {
 				io.WriteString(conn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
@@ -163,6 +164,7 @@ func (t *Tunnel) handleHTTPProxy(client *ssh.Client, conn net.Conn, br *bufio.Re
 			host = req.Host
 		}
 		if host == "" {
+			_ = req.Body.Close()
 			io.WriteString(conn, "HTTP/1.1 400 Bad Request\r\n\r\n")
 			return
 		}
@@ -171,6 +173,7 @@ func (t *Tunnel) handleHTTPProxy(client *ssh.Client, conn net.Conn, br *bufio.Re
 		}
 		remote, err := client.Dial("tcp", host)
 		if err != nil {
+			_ = req.Body.Close()
 			io.WriteString(conn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return
 		}
@@ -178,9 +181,12 @@ func (t *Tunnel) handleHTTPProxy(client *ssh.Client, conn net.Conn, br *bufio.Re
 		req.RequestURI = ""
 		req.Header.Del("Proxy-Connection")
 		if err := req.Write(remote); err != nil {
+			_ = req.Body.Close()
 			remote.Close()
 			return
 		}
+		// body 已被 req.Write 消费，显式关闭以释放 reader，避免 keep-alive 下一轮读错位
+		_ = req.Body.Close()
 		resp, err := http.ReadResponse(bufio.NewReader(remote), req)
 		if err != nil {
 			remote.Close()
