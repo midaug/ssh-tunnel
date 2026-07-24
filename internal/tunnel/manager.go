@@ -45,8 +45,11 @@ func (m *Manager) Start(id string) error {
 	if err != nil {
 		return err
 	}
-	// 同步最新配置
-	cfg, _ := m.store.GetTunnel(id)
+	// 同步最新配置；若隧道已被删除则不启动，避免用空配置拨号
+	cfg, err := m.store.GetTunnel(id)
+	if err != nil {
+		return err
+	}
 	t.mu.Lock()
 	t.cfg = cfg
 	t.mu.Unlock()
@@ -111,6 +114,15 @@ func (m *Manager) StopAll() {
 	for _, id := range ids {
 		m.Stop(id)
 	}
+}
+
+// Reset 停止并丢弃所有运行时实例。用于 replace 式导入后清理孤儿隧道，
+// 避免旧配置的隧道在后台继续运行却无法从 UI 控制。
+func (m *Manager) Reset() {
+	m.StopAll()
+	m.mu.Lock()
+	m.tunnels = make(map[string]*Tunnel)
+	m.mu.Unlock()
 }
 
 // StartAll 启动所有隧道

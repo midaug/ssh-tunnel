@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 
@@ -116,7 +117,14 @@ func (a *App) ImportConfig(jsonStr string, mode string) (int, error) {
 	if mode == "" {
 		mode = "merge"
 	}
-	return a.store.ImportConfig(jsonStr, mode)
+	// replace 会整体替换隧道列表，先停止并清理所有运行时实例，
+	// 否则旧配置的隧道会在后台继续运行却无法从 UI 控制
+	if mode == "replace" {
+		a.manager.Reset()
+	}
+	n, err := a.store.ImportConfig(jsonStr, mode)
+	a.refresh()
+	return n, err
 }
 
 // ParseSSHCommand 解析 ssh 命令行为隧道配置
@@ -155,7 +163,12 @@ func (a *App) GetSettings() config.Settings {
 // SetSettings 更新全局设置（同时同步开机自启、Dock 显示）
 func (a *App) SetSettings(s config.Settings) error {
 	if s.Autostart {
-		if err := autostart.Enable(""); err != nil {
+		// 取当前可执行文件路径写入自启项，否则各平台会写入空路径导致无法启动
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("获取程序路径失败: %w", err)
+		}
+		if err := autostart.Enable(exe); err != nil {
 			return fmt.Errorf("启用开机自启失败: %w", err)
 		}
 	} else {
