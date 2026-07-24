@@ -67,9 +67,10 @@ func (t *Tunnel) setStatus(s config.Status, err string) {
 	statusCopy := s
 	errCopy := err
 	h := t.onStatus
+	id := t.cfg.ID
 	t.mu.Unlock()
 	if h != nil {
-		h(t.cfg.ID, statusCopy, errCopy)
+		h(id, statusCopy, errCopy)
 	}
 }
 
@@ -113,8 +114,13 @@ func (t *Tunnel) Stop() {
 
 // run 主循环：连接 → 启动转发 → 监控断线 → 退避重连
 func (t *Tunnel) run() {
+	// errored 标记本次退出是否因终态错误（无自动重连时的连接失败 / 断开）。
+	// 若是，保留 Error 状态，不 defer 覆盖为 Stopped，让用户能看到 ⚠。
+	var errored bool
 	defer func() {
-		t.setStatus(config.StatusStopped, "")
+		if !errored {
+			t.setStatus(config.StatusStopped, "")
+		}
 		t.mu.Lock()
 		if t.doneCh != nil {
 			close(t.doneCh)
@@ -124,11 +130,12 @@ func (t *Tunnel) run() {
 		t.mu.Unlock()
 	}()
 
-	backoff := t.cfg.ReconnectMinMS
+	initCfg := t.Cfg()
+	backoff := initCfg.ReconnectMinMS
 	if backoff < 500 {
 		backoff = 500
 	}
-	maxBackoff := t.cfg.ReconnectMaxMS
+	maxBackoff := initCfg.ReconnectMaxMS
 	if maxBackoff < backoff {
 		maxBackoff = 30000
 	}
@@ -140,8 +147,13 @@ func (t *Tunnel) run() {
 		default:
 		}
 
+		// 每轮迭代开始处加锁快照配置，循环体内一律用 cfg。
+		// 写侧（Manager.Start/ReloadConfig）加锁整体替换 t.cfg，
+		// 这样读写都在锁保护下，避免数据竞争，也让配置在下次重连时生效。
+		cfg := t.Cfg()
+
 		t.setStatus(config.StatusConnecting, "")
-		client, err := t.connect()
+		client, err := t.connect(cfg)
 		if err != nil {
 			// 若是停止导致的中断，不报错
 			select {
@@ -150,7 +162,8 @@ func (t *Tunnel) run() {
 			default:
 			}
 			t.setStatus(config.StatusError, err.Error())
-			if !t.cfg.AutoReconnect {
+			if !cfg.AutoReconnect {
+				errored = true
 				return
 			}
 			if !t.sleep(time.Duration(backoff) * time.Millisecond) {
@@ -168,12 +181,13 @@ func (t *Tunnel) run() {
 		t.mu.Unlock()
 
 		// 启动所有转发监听器
-		fwdErr := t.startForwards(client)
+		fwdErr := t.startForwards(client, cfg)
 		if fwdErr != nil {
 			t.setStatus(config.StatusError, fwdErr.Error())
 			t.closeAll()
 			_ = client.Close()
-			if !t.cfg.AutoReconnect {
+			if !cfg.AutoReconnect {
+				errored = true
 				return
 			}
 			if !t.sleep(time.Duration(backoff) * time.Millisecond) {
@@ -187,28 +201,37 @@ func (t *Tunnel) run() {
 		}
 
 		// 重连成功，重置退避
-		backoff = t.cfg.ReconnectMinMS
+		backoff = cfg.ReconnectMinMS
 		if backoff < 500 {
 			backoff = 500
 		}
 		t.setStatus(config.StatusRunning, "")
+
+		// keepalive：周期性发送 keepalive 请求，防止 NAT / 防火墙静默掐断空闲连接
+		kaDone := make(chan struct{})
+		if cfg.ServerAliveInterval > 0 {
+			go t.keepalive(client, cfg.ServerAliveInterval, kaDone)
+		}
 
 		// 阻塞等待断线或停止
 		waitErr := make(chan error, 1)
 		go func() { waitErr <- client.Wait() }()
 		select {
 		case <-t.stopCh:
+			close(kaDone)
 			t.closeAll()
 			_ = client.Close()
 			return
 		case <-waitErr:
+			close(kaDone)
 			t.closeAll()
 			_ = client.Close()
 			t.mu.Lock()
 			t.client = nil
 			t.mu.Unlock()
-			if !t.cfg.AutoReconnect {
+			if !cfg.AutoReconnect {
 				t.setStatus(config.StatusError, "连接断开")
+				errored = true
 				return
 			}
 			t.setStatus(config.StatusConnecting, "连接断开，准备重连")
@@ -223,26 +246,24 @@ func (t *Tunnel) run() {
 	}
 }
 
-// connect 建立 SSH 连接。使用 context 监听 stopCh，使 Stop 时能立即中断拨号
-func (t *Tunnel) connect() (*ssh.Client, error) {
-	authMethods, err := auth.BuildAuthMethods(string(t.cfg.AuthType), t.cfg.Password, t.cfg.KeyPath, t.cfg.KeyPassphrase)
+// connect 建立 SSH 连接。使用 context 监听 stopCh，使 Stop 时能立即中断拨号。
+// 配置由调用方以快照传入，避免与 Manager 的并发写 t.cfg 竞争。
+func (t *Tunnel) connect(cfg config.Tunnel) (*ssh.Client, error) {
+	authMethods, err := auth.BuildAuthMethods(string(cfg.AuthType), cfg.Password, cfg.KeyPath, cfg.KeyPassphrase)
 	if err != nil {
 		return nil, fmt.Errorf("认证配置错误: %w", err)
 	}
-	port := t.cfg.Port
+	port := cfg.Port
 	if port == 0 {
 		port = 22
 	}
 	sshCfg := &ssh.ClientConfig{
-		User:            t.cfg.User,
+		User:            cfg.User,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // 简化：不校验 host key，管理工具常见做法
 		Timeout:         15 * time.Second,
 	}
-	if t.cfg.ServerAliveInterval > 0 {
-		sshCfg.Config.SetDefaults()
-	}
-	addr := fmt.Sprintf("%s:%d", t.cfg.Host, port)
+	addr := fmt.Sprintf("%s:%d", cfg.Host, port)
 
 	// 用 context 让 TCP 拨号可被 stopCh 中断
 	ctx, cancel := context.WithCancel(context.Background())
@@ -257,7 +278,7 @@ func (t *Tunnel) connect() (*ssh.Client, error) {
 	}()
 	defer close(stopWatcherDone)
 
-	conn, err := dialViaProxy(ctx, t.cfg.Proxy, addr)
+	conn, err := dialViaProxy(ctx, cfg.Proxy, addr)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, errors.New("已取消")
@@ -276,12 +297,35 @@ func (t *Tunnel) connect() (*ssh.Client, error) {
 	return ssh.NewClient(sc, chans, reqs), nil
 }
 
+// keepalive 周期性向 SSH 服务器发送 keepalive 请求，保持长连接活跃。
+// 在 done 关闭或 SendRequest 失败（连接已断）时退出。
+func (t *Tunnel) keepalive(client *ssh.Client, intervalSec int, done <-chan struct{}) {
+	interval := time.Duration(intervalSec) * time.Second
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			// wantReply=true 让服务器必须回应，从而确认连接存活；
+			// 连接已断时 SendRequest 返回错误，退出 goroutine
+			if _, _, err := client.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
 // startForwards 启动所有转发监听器
-func (t *Tunnel) startForwards(client *ssh.Client) error {
+func (t *Tunnel) startForwards(client *ssh.Client, cfg config.Tunnel) error {
 	t.mu.Lock()
 	t.listeners = t.listeners[:0]
 	t.mu.Unlock()
-	for _, f := range t.cfg.Forwards {
+	for _, f := range cfg.Forwards {
 		if err := t.startOneForward(client, f); err != nil {
 			return fmt.Errorf("转发 %s %s 启动失败: %w", f.Type, f.Listen, err)
 		}
