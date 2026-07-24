@@ -52,3 +52,39 @@ func TestParseForwardRemoteBind(t *testing.T) {
 		t.Errorf("bad forward: %+v", f)
 	}
 }
+
+func TestParseForwardIPv6(t *testing.T) {
+	// bind 为 IPv6：-L [::1]:8080:localhost:80
+	tun, err := ParseSSHCommand(`ssh -L [::1]:8080:localhost:80 user@host`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := tun.Forwards[0]
+	if f.Listen != "[::1]:8080" || f.Target != "localhost:80" {
+		t.Errorf("bad ipv6 bind forward: %+v", f)
+	}
+
+	// 目标为 IPv6：-L 8080:[::1]:80
+	tun2, err := ParseSSHCommand(`ssh -L 8080:[::1]:80 user@host`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f2 := tun2.Forwards[0]
+	if f2.Listen != "8080" || f2.Target != "[::1]:80" {
+		t.Errorf("bad ipv6 target forward: %+v", f2)
+	}
+}
+
+func TestParseOptions(t *testing.T) {
+	// -o Port=2222 与 -o IdentityFile=~/key 两种写法都应生效
+	tun, err := ParseSSHCommand(`ssh -o Port=2222 -o IdentityFile=~/.ssh/alt -L 8080:localhost:80 user@host`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tun.Port != 2222 {
+		t.Errorf("port: want 2222, got %d", tun.Port)
+	}
+	if tun.KeyPath != "~/.ssh/alt" || tun.AuthType != AuthKey {
+		t.Errorf("key: want ~/.ssh/alt/key, got %+v", tun)
+	}
+}
