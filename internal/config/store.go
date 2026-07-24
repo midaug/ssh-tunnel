@@ -194,17 +194,22 @@ func (s *Store) GetTunnel(id string) (Tunnel, error) {
 	return Tunnel{}, ErrTunnelNotFound
 }
 
-// UpdateRuntimeStatus 仅更新运行时状态，不持久化到磁盘（避免频繁写盘）
-func (s *Store) UpdateRuntimeStatus(id string, status Status, lastErr string, startedAtZero bool) {
+// UpdateRuntimeStatus 仅更新运行时状态，不持久化到磁盘（避免频繁写盘）。
+// StartedAt 的语义与 Tunnel 内部一致：进入 running/connecting 时首次记录，
+// 重连过程中保持不变，stopped/error 时清空。
+func (s *Store) UpdateRuntimeStatus(id string, status Status, lastErr string) {
 	s.mu.Lock()
 	for i := range s.cfg.Tunnels {
 		if s.cfg.Tunnels[i].ID == id {
 			s.cfg.Tunnels[i].Status = status
 			s.cfg.Tunnels[i].LastError = lastErr
-			if startedAtZero {
+			switch status {
+			case StatusStopped, StatusError:
 				s.cfg.Tunnels[i].StartedAt = ""
-			} else if status == StatusRunning || status == StatusConnecting {
-				s.cfg.Tunnels[i].StartedAt = time.Now().Format(time.RFC3339)
+			case StatusRunning, StatusConnecting:
+				if s.cfg.Tunnels[i].StartedAt == "" {
+					s.cfg.Tunnels[i].StartedAt = time.Now().Format(time.RFC3339)
+				}
 			}
 			break
 		}

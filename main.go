@@ -39,7 +39,7 @@ func main() {
 
 	// 隧道管理器，状态变更同步到 store + 托盘 + 前端
 	manager := tunnel.NewManager(store, func(id string, status config.Status, lastErr string) {
-		store.UpdateRuntimeStatus(id, status, lastErr, status == config.StatusStopped || status == config.StatusError)
+		store.UpdateRuntimeStatus(id, status, lastErr)
 		// 推送事件到前端
 		if wailsCtx != nil {
 			wailsRuntime.EventsEmit(wailsCtx, "tunnel:status", map[string]string{
