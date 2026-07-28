@@ -18,14 +18,11 @@ jobs:
       fail-fast: false # 单个目标失败不影响其它目标继续构建
       matrix:
         include:
-          # Linux：amd64 (x64) + 386 (x86)
+          # Linux：amd64 (x64)。
+          # 注：wails v2 不支持 linux/386（仅 amd64/arm64/arm），故不产出 x86。
           - runs-on: ubuntu-22.04
             wails-platform: linux/amd64
             artifact: ssh-tunnel-${{ github.ref_name }}-linux-amd64
-          - runs-on: ubuntu-22.04
-            wails-platform: linux/386
-            artifact: ssh-tunnel-${{ github.ref_name }}-linux-386
-            allow-fail: true # 32 位交叉编译可能缺 C 库，失败不阻断发版
           # Windows：amd64 (x64) + 386 (x86)
           - runs-on: windows-latest
             wails-platform: windows/amd64
@@ -33,7 +30,7 @@ jobs:
           - runs-on: windows-latest
             wails-platform: windows/386
             artifact: ssh-tunnel-${{ github.ref_name }}-windows-386
-            allow-fail: true # 32 位交叉编译可能缺 C 库，失败不阻断发版
+            allow-fail: true # 32 位 C 绑定可能缺库，失败不阻断发版
           # macOS：Intel (amd64) + Apple Silicon (arm64)
           - runs-on: macos-14
             wails-platform: darwin/amd64
@@ -45,16 +42,16 @@ jobs:
     continue-on-error: ${{ matrix.allow-fail == true }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
           cache: true
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
@@ -77,11 +74,10 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      # macOS 链接需要 UniformTypeIdentifiers 框架，与 Wails 官方 CI 一致
+      # 构建。-nsis 仅 Windows 有效（其它平台传 -nsis 会因
+      # "no windows targets" 报错退出）；wails 自行处理各平台链接，无需手动 CGO_LDFLAGS。
       - name: Build Wails app
-        env:
-          CGO_LDFLAGS: ${{ runner.os == 'macOS' && '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13' || '' }}
-        run: wails build -platform ${{ matrix.wails-platform }} -clean -nsis
+        run: wails build -platform ${{ matrix.wails-platform }} -clean ${{ runner.os == 'Windows' && '-nsis' || '' }}
 
       # 把产物重命名为规范的 ssh-tunnel-v<ver>-<os>-<arch>.<ext>
       - name: Rename artifacts (Linux)
@@ -108,7 +104,7 @@ jobs:
           ditto -c -k --keepParent ssh-tunnel.app "${{ matrix.artifact }}.zip"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -126,12 +122,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout (full history, for changelog)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           path: artifacts
           merge-multiple: true
@@ -165,11 +161,12 @@ jobs:
             echo "| 平台 | 架构 | 文件 |"
             echo "| --- | --- | --- |"
             echo "| Linux | x64 | \`ssh-tunnel-${CUR_TAG}-linux-amd64\` |"
-            echo "| Linux | x86 | \`ssh-tunnel-${CUR_TAG}-linux-386\` |"
             echo "| Windows | x64 | \`ssh-tunnel-${CUR_TAG}-windows-amd64.exe\` / 安装包 \`...-installer.exe\` |"
             echo "| Windows | x86 | \`ssh-tunnel-${CUR_TAG}-windows-386.exe\` / 安装包 \`...-installer.exe\` |"
             echo "| macOS | Intel | \`ssh-tunnel-${CUR_TAG}-darwin-amd64.zip\` |"
             echo "| macOS | Apple Silicon | \`ssh-tunnel-${CUR_TAG}-darwin-arm64.zip\` |"
+            echo
+            echo "> ⚠️ Wails v2 不支持 Linux x86(386)，Linux 仅提供 x64 版本。"
             echo
             if [ -n "$PREV_TAG" ]; then
               echo "## 📝 变更日志"
@@ -208,7 +205,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body: ${{ steps.changelog.outputs.body }}
           generate-release-notes: true # 追加 GitHub 自动生成的 notes 作为补充
