@@ -27,19 +27,22 @@ jobs:
           - runs-on: windows-latest
             wails-platform: windows/amd64
             artifact: ssh-tunnel-${{ github.ref_name }}-windows-amd64
+            nsis: 'true' # NSIS 仅 windows/amd64 与 windows/arm64 支持
           - runs-on: windows-latest
             wails-platform: windows/386
             artifact: ssh-tunnel-${{ github.ref_name }}-windows-386
-            allow-fail: true # 32 位 C 绑定可能缺库，失败不阻断发版
-          # macOS：Intel (amd64) + Apple Silicon (arm64)
+            nsis: 'false' # wails 的 NSIS 不支持 386，否则报 "no windows targets"
+          # macOS：Intel (amd64) + Apple Silicon (arm64) + 通用 (universal)
           - runs-on: macos-14
             wails-platform: darwin/amd64
             artifact: ssh-tunnel-${{ github.ref_name }}-darwin-amd64
           - runs-on: macos-14
             wails-platform: darwin/arm64
             artifact: ssh-tunnel-${{ github.ref_name }}-darwin-arm64
+          - runs-on: macos-14
+            wails-platform: darwin/universal
+            artifact: ssh-tunnel-${{ github.ref_name }}-darwin-universal
     runs-on: ${{ matrix.runs-on }}
-    continue-on-error: ${{ matrix.allow-fail == true }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -74,30 +77,35 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
-      # 构建。-nsis 仅 Windows 有效（其它平台传 -nsis 会因
-      # "no windows targets" 报错退出）；wails 自行处理各平台链接，无需手动 CGO_LDFLAGS。
-      - name: Build Wails app
-        run: wails build -platform ${{ matrix.wails-platform }} -clean ${{ runner.os == 'Windows' && '-nsis' || '' }}
-
-      # 把产物重命名为规范的 ssh-tunnel-v<ver>-<os>-<arch>.<ext>
-      - name: Rename artifacts (Linux)
+      # 构建。用 -o 直接指定规范产物名，避免后续 rename 猜测文件名失败。
+      # -nsis 仅 Windows amd64/arm64 支持（wails 白名单），386 传 -nsis 会报错退出。
+      # 注：wails 的 -o 不会自动补 .exe，Windows 需显式带后缀。
+      - name: Build Wails app (Linux)
         if: runner.os == 'Linux'
-        run: |
-          mv build/bin/ssh-tunnel "build/bin/${{ matrix.artifact }}"
+        run: wails build -platform ${{ matrix.wails-platform }} -clean -o "${{ matrix.artifact }}"
 
-      - name: Rename artifacts (Windows)
+      - name: Build Wails app (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        run: wails build -platform ${{ matrix.wails-platform }} -clean ${{ matrix.nsis == 'true' && '-nsis' || '' }} -o "${{ matrix.artifact }}.exe"
+
+      # macOS 的 -o 只改可执行文件名，不改 .app 目录名，故仍用 rename。
+      - name: Build Wails app (macOS)
+        if: runner.os == 'macOS'
+        run: wails build -platform ${{ matrix.wails-platform }} -clean
+
+      # Windows：重命名 NSIS 安装包（project.nsi 固定输出 ssh-tunnel-<arch>-installer.exe）
+      - name: Rename NSIS installer (Windows)
+        if: runner.os == 'Windows' && matrix.nsis == 'true'
+        shell: bash
         run: |
-          # 主程序
-          mv build/bin/ssh-tunnel.exe "build/bin/${{ matrix.artifact }}.exe"
-          # NSIS 安装包（wails 产出 *-amd64-installer.exe / *-386-installer.exe）
           installer=$(ls build/bin/*-installer.exe 2>/dev/null | head -1)
           if [ -n "$installer" ]; then
             mv "$installer" "build/bin/${{ matrix.artifact }}-installer.exe"
           fi
 
-      - name: Rename artifacts (macOS)
+      # macOS：.app 打包成 zip（ditto 保留权限/结构），用规范名
+      - name: Archive macOS app
         if: runner.os == 'macOS'
         run: |
           cd build/bin
@@ -161,12 +169,13 @@ jobs:
             echo "| 平台 | 架构 | 文件 |"
             echo "| --- | --- | --- |"
             echo "| Linux | x64 | \`ssh-tunnel-${CUR_TAG}-linux-amd64\` |"
-            echo "| Windows | x64 | \`ssh-tunnel-${CUR_TAG}-windows-amd64.exe\` / 安装包 \`...-installer.exe\` |"
-            echo "| Windows | x86 | \`ssh-tunnel-${CUR_TAG}-windows-386.exe\` / 安装包 \`...-installer.exe\` |"
+            echo "| Windows | x64 | \`ssh-tunnel-${CUR_TAG}-windows-amd64.exe\` / 安装包 \`...-amd64-installer.exe\` |"
+            echo "| Windows | x86 | \`ssh-tunnel-${CUR_TAG}-windows-386.exe\` |"
             echo "| macOS | Intel | \`ssh-tunnel-${CUR_TAG}-darwin-amd64.zip\` |"
             echo "| macOS | Apple Silicon | \`ssh-tunnel-${CUR_TAG}-darwin-arm64.zip\` |"
+            echo "| macOS | 通用 (Intel+ARM) | \`ssh-tunnel-${CUR_TAG}-darwin-universal.zip\` |"
             echo
-            echo "> ⚠️ Wails v2 不支持 Linux x86(386)，Linux 仅提供 x64 版本。"
+            echo "> ⚠️ Wails v2 不支持 Linux x86(386)，Linux 仅提供 x64。Windows x86 仅提供免安装 exe（无 NSIS 安装包）。"
             echo
             if [ -n "$PREV_TAG" ]; then
               echo "## 📝 变更日志"
