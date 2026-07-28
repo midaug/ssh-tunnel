@@ -45,25 +45,28 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # Wails 在 Linux 上依赖 webkit2/gtk 等系统库
+      # Wails v2 在 Linux 上依赖 webkit2gtk-4.0 / gtk3 等系统库；
+      # libayatana-appindicator3-dev 是项目用到的 systray 依赖。
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
+            libwebkit2gtk-4.0-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
+            build-essential \
+            pkg-config
 
-      # wailsapp/wails-action 会安装 Wails CLI 并执行 wails build
+      # 安装与 go.mod 中 wails 版本一致的 CLI（v2.12.0）
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      # macOS 链接需要 UniformTypeIdentifiers 框架，与 Wails 官方 CI 一致
       - name: Build Wails app
-        uses: wailsapp/wails-action@v2
-        with:
-          build-name: ssh-tunnel
-          build-platform: ${{ matrix.wails-platform }}
-          package: true
+        env:
+          CGO_LDFLAGS: ${{ runner.os == 'macOS' && '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13' || '' }}
+        run: wails build -platform ${{ matrix.wails-platform }} -clean
 
       # macOS 产物是 .app 目录，打包成 zip 才能上传
       - name: Archive macOS app
