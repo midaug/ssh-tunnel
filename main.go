@@ -23,6 +23,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var appIcon []byte
+
 // 全局引用，供托盘回调使用
 var (
 	appInstance  *App
@@ -145,8 +148,12 @@ func main() {
 		},
 		Mac: &mac.Options{
 			About: &mac.AboutInfo{
-				Title:   "SSH Tunnel",
-				Message: "SSH 端口转发管理工具",
+				Title: "SSH Tunnel " + Version,
+				Message: "SSH 端口转发可视化管理工具\n\n" +
+					"作者: Midaug <days0814@gmail.com>\n" +
+					"GitHub: https://github.com/midaug/ssh-tunnel\n" +
+					"授权: MIT License",
+				Icon: appIcon,
 			},
 		},
 	})

@@ -9,7 +9,6 @@ const routes = [
   {path: '/edit/:id?', component: () => import('./views/TunnelEdit.vue')},
   {path: '/settings', component: () => import('./views/Settings.vue')},
   {path: '/import', component: () => import('./views/ImportView.vue')},
-  {path: '/about', component: () => import('./views/About.vue')},
 ]
 
 const router = createRouter({history: createWebHashHistory(), routes})
