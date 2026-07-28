@@ -123,3 +123,28 @@ export namespace config {
 
 }
 
+export namespace main {
+	
+	export class AppInfo {
+	    version: string;
+	    author: string;
+	    email: string;
+	    githubUrl: string;
+	    license: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.author = source["author"];
+	        this.email = source["email"];
+	        this.githubUrl = source["githubUrl"];
+	        this.license = source["license"];
+	    }
+	}
+
+}
+

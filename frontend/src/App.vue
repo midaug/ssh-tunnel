@@ -31,6 +31,7 @@ async function quitApp() {
         <router-link to="/edit">新建隧道</router-link>
         <router-link to="/import">导入</router-link>
         <router-link to="/settings">设置</router-link>
+        <router-link to="/about">关于</router-link>
       </nav>
       <div class="spacer"></div>
       <nav>

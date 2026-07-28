@@ -13,6 +13,19 @@ import (
 	"ssh-tunnel/internal/tunnel"
 )
 
+// Version 程序版本号。本地开发时为 "dev"；
+// CI 发布时通过 -ldflags "-X main.Version=<tag>" 注入实际版本。
+var Version = "dev"
+
+// AppInfo 是「关于」页面展示的应用元信息
+type AppInfo struct {
+	Version   string `json:"version"`
+	Author    string `json:"author"`
+	Email     string `json:"email"`
+	GitHubURL string `json:"githubUrl"`
+	License   string `json:"license"`
+}
+
 // App 主应用，绑定到前端
 type App struct {
 	ctx        context.Context
@@ -211,5 +224,16 @@ func (a *App) OpenInFolder(path string) error {
 		return exec.Command("explorer", "/select,", path).Start()
 	default:
 		return exec.Command("xdg-open", path).Start()
+	}
+}
+
+// GetAppInfo 返回「关于」页面所需的版本号、作者、GitHub 地址、授权协议等元信息
+func (a *App) GetAppInfo() AppInfo {
+	return AppInfo{
+		Version:   Version,
+		Author:    "Midaug",
+		Email:     "days0814@gmail.com",
+		GitHubURL: "https://github.com/midaug/ssh-tunnel",
+		License:   "MIT License",
 	}
 }

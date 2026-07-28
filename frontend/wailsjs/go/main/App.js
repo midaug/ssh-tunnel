@@ -10,6 +10,10 @@ export function ExportConfig() {
   return window['go']['main']['App']['ExportConfig']();
 }
 
+export function GetAppInfo() {
+  return window['go']['main']['App']['GetAppInfo']();
+}
+
 export function GetAutostart() {
   return window['go']['main']['App']['GetAutostart']();
 }
