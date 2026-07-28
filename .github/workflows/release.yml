@@ -1,0 +1,111 @@
+name: Release
+
+# 打 tag（如 v1.0.0）时自动构建全平台并发布 Release；
+# 也支持在 Actions 页面手动触发用于测试。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # softprops/action-gh-release 需要写权限来创建 Release
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false # 单个平台失败不影响其它平台继续构建
+      matrix:
+        include:
+          - platform: linux
+            runs-on: ubuntu-22.04
+            wails-platform: linux/amd64
+          - platform: windows
+            runs-on: windows-latest
+            wails-platform: windows/amd64
+          - platform: macos
+            runs-on: macos-14 # Apple Silicon (arm64)
+            wails-platform: darwin/universal # 同时包含 amd64 + arm64
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Wails 在 Linux 上依赖 webkit2/gtk 等系统库
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # wailsapp/wails-action 会安装 Wails CLI 并执行 wails build
+      - name: Build Wails app
+        uses: wailsapp/wails-action@v2
+        with:
+          build-name: ssh-tunnel
+          build-platform: ${{ matrix.wails-platform }}
+          package: true
+
+      # macOS 产物是 .app 目录，打包成 zip 才能上传
+      - name: Archive macOS app
+        if: runner.os == 'macOS'
+        run: |
+          cd build/bin
+          ditto -c -k --keepParent ssh-tunnel.app \
+            ssh-tunnel-${{ github.ref_name }}-macos-universal.zip
+
+      # Linux 产物是裸二进制，加上平台后缀便于区分
+      - name: Rename Linux binary
+        if: runner.os == 'Linux'
+        run: |
+          mv build/bin/ssh-tunnel \
+            build/bin/ssh-tunnel-${{ github.ref_name }}-linux-amd64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-tunnel-${{ matrix.platform }}
+          path: |
+            build/bin/*.zip
+            build/bin/*.exe
+            build/bin/ssh-tunnel-*-linux-*
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate-release-notes: true # 自动用 commit / PR 历史生成 Release Notes
+          files: |
+            artifacts/*
