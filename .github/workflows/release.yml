@@ -1,7 +1,7 @@
 name: Release
 
 # 打 tag（如 v1.0.0）时自动构建全平台并发布 Release；
-# 也支持在 Actions 页面手动触发用于测试。
+# 也支持在 Actions 页面手动触发用于测试（仅构建产物，不发 Release）。
 on:
   push:
     tags:
@@ -13,21 +13,36 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.platform }})
+    name: Build ${{ matrix.wails-platform }}
     strategy:
-      fail-fast: false # 单个平台失败不影响其它平台继续构建
+      fail-fast: false # 单个目标失败不影响其它目标继续构建
       matrix:
         include:
-          - platform: linux
-            runs-on: ubuntu-22.04
+          # Linux：amd64 (x64) + 386 (x86)
+          - runs-on: ubuntu-22.04
             wails-platform: linux/amd64
-          - platform: windows
-            runs-on: windows-latest
+            artifact: ssh-tunnel-${{ github.ref_name }}-linux-amd64
+          - runs-on: ubuntu-22.04
+            wails-platform: linux/386
+            artifact: ssh-tunnel-${{ github.ref_name }}-linux-386
+            allow-fail: true # 32 位交叉编译可能缺 C 库，失败不阻断发版
+          # Windows：amd64 (x64) + 386 (x86)
+          - runs-on: windows-latest
             wails-platform: windows/amd64
-          - platform: macos
-            runs-on: macos-14 # Apple Silicon (arm64)
-            wails-platform: darwin/universal # 同时包含 amd64 + arm64
+            artifact: ssh-tunnel-${{ github.ref_name }}-windows-amd64
+          - runs-on: windows-latest
+            wails-platform: windows/386
+            artifact: ssh-tunnel-${{ github.ref_name }}-windows-386
+            allow-fail: true # 32 位交叉编译可能缺 C 库，失败不阻断发版
+          # macOS：Intel (amd64) + Apple Silicon (arm64)
+          - runs-on: macos-14
+            wails-platform: darwin/amd64
+            artifact: ssh-tunnel-${{ github.ref_name }}-darwin-amd64
+          - runs-on: macos-14
+            wails-platform: darwin/arm64
+            artifact: ssh-tunnel-${{ github.ref_name }}-darwin-arm64
     runs-on: ${{ matrix.runs-on }}
+    continue-on-error: ${{ matrix.allow-fail == true }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,31 +81,41 @@ jobs:
       - name: Build Wails app
         env:
           CGO_LDFLAGS: ${{ runner.os == 'macOS' && '-framework UniformTypeIdentifiers -mmacosx-version-min=10.13' || '' }}
-        run: wails build -platform ${{ matrix.wails-platform }} -clean
+        run: wails build -platform ${{ matrix.wails-platform }} -clean -nsis
 
-      # macOS 产物是 .app 目录，打包成 zip 才能上传
-      - name: Archive macOS app
+      # 把产物重命名为规范的 ssh-tunnel-v<ver>-<os>-<arch>.<ext>
+      - name: Rename artifacts (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mv build/bin/ssh-tunnel "build/bin/${{ matrix.artifact }}"
+
+      - name: Rename artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # 主程序
+          mv build/bin/ssh-tunnel.exe "build/bin/${{ matrix.artifact }}.exe"
+          # NSIS 安装包（wails 产出 *-amd64-installer.exe / *-386-installer.exe）
+          installer=$(ls build/bin/*-installer.exe 2>/dev/null | head -1)
+          if [ -n "$installer" ]; then
+            mv "$installer" "build/bin/${{ matrix.artifact }}-installer.exe"
+          fi
+
+      - name: Rename artifacts (macOS)
         if: runner.os == 'macOS'
         run: |
           cd build/bin
-          ditto -c -k --keepParent ssh-tunnel.app \
-            ssh-tunnel-${{ github.ref_name }}-macos-universal.zip
-
-      # Linux 产物是裸二进制，加上平台后缀便于区分
-      - name: Rename Linux binary
-        if: runner.os == 'Linux'
-        run: |
-          mv build/bin/ssh-tunnel \
-            build/bin/ssh-tunnel-${{ github.ref_name }}-linux-amd64
+          ditto -c -k --keepParent ssh-tunnel.app "${{ matrix.artifact }}.zip"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ssh-tunnel-${{ matrix.platform }}
+          name: ${{ matrix.artifact }}
           path: |
-            build/bin/*.zip
-            build/bin/*.exe
-            build/bin/ssh-tunnel-*-linux-*
+            build/bin/${{ matrix.artifact }}
+            build/bin/${{ matrix.artifact }}.exe
+            build/bin/${{ matrix.artifact }}-installer.exe
+            build/bin/${{ matrix.artifact }}.zip
           if-no-files-found: warn
           retention-days: 14
 
@@ -100,15 +125,92 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
+      - name: Checkout (full history, for changelog)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
+      # 基于“上一个 tag → 当前 tag”之间的 commit 生成中文 Release Note，
+      # 按 feat / fix / 其它 分类，直观体现本次相对上次的变化。
+      - name: Generate changelog
+        id: changelog
+        run: |
+          set -euo pipefail
+          CUR_TAG="${GITHUB_REF_NAME}"
+          # 取上一个 tag（按创建时间倒序，跳过当前 tag）
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CUR_TAG}$" | head -1 || true)
+
+          RANGE="${PREV_TAG:+$PREV_TAG..HEAD}"
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="HEAD"
+          fi
+
+          echo "范围: ${RANGE:-所有提交}"
+
+          # 分类提取 commit（去重 subject，去掉 trivial merge）
+          feats=$(git log ${RANGE} --pretty=format:'%s' 2>/dev/null | grep -iE '^feat' | sed 's/^[^:]*: *//' | sort -u || true)
+          fixes=$(git log ${RANGE} --pretty=format:'%s' 2>/dev/null | grep -iE '^fix' | sed 's/^[^:]*: *//' | sort -u || true)
+          others=$(git log ${RANGE} --pretty=format:'%s' 2>/dev/null | grep -ivE '^(feat|fix|merge|chore|ci|docs|style|refactor|test|perf)(\(|:)' | sort -u || true)
+
+          {
+            echo "body<<EOF"
+            echo "## 📦 下载"
+            echo
+            echo "| 平台 | 架构 | 文件 |"
+            echo "| --- | --- | --- |"
+            echo "| Linux | x64 | \`ssh-tunnel-${CUR_TAG}-linux-amd64\` |"
+            echo "| Linux | x86 | \`ssh-tunnel-${CUR_TAG}-linux-386\` |"
+            echo "| Windows | x64 | \`ssh-tunnel-${CUR_TAG}-windows-amd64.exe\` / 安装包 \`...-installer.exe\` |"
+            echo "| Windows | x86 | \`ssh-tunnel-${CUR_TAG}-windows-386.exe\` / 安装包 \`...-installer.exe\` |"
+            echo "| macOS | Intel | \`ssh-tunnel-${CUR_TAG}-darwin-amd64.zip\` |"
+            echo "| macOS | Apple Silicon | \`ssh-tunnel-${CUR_TAG}-darwin-arm64.zip\` |"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo "## 📝 变更日志"
+              echo
+              echo "相对 [\`${PREV_TAG}\`](../../releases/tag/${PREV_TAG}) 的变化："
+              echo
+            else
+              echo "## 📝 变更日志"
+              echo
+              echo "本次发布包含："
+              echo
+            fi
+
+            if [ -n "$feats" ]; then
+              echo "### ✨ 新功能"
+              echo "$feats" | sed 's/^/- /'
+              echo
+            fi
+            if [ -n "$fixes" ]; then
+              echo "### 🐛 问题修复"
+              echo "$fixes" | sed 's/^/- /'
+              echo
+            fi
+            if [ -n "$others" ]; then
+              echo "### 📌 其它"
+              echo "$others" | sed 's/^/- /'
+              echo
+            fi
+            if [ -z "$feats" ] && [ -z "$fixes" ] && [ -z "$others" ]; then
+              echo "_(无显著变更记录)_"
+              echo
+            fi
+            echo "---"
+            echo "> 完整提交历史见 [commits 比较](../../compare/${PREV_TAG:-${CUR_TAG}}...${CUR_TAG})"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          generate-release-notes: true # 自动用 commit / PR 历史生成 Release Notes
+          body: ${{ steps.changelog.outputs.body }}
+          generate-release-notes: true # 追加 GitHub 自动生成的 notes 作为补充
           files: |
             artifacts/*
